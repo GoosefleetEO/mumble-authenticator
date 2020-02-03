@@ -43,6 +43,7 @@
 from __future__ import print_function
 import sys
 import Ice
+import datetime
 
 try:
     import thread
@@ -284,6 +285,7 @@ def do_main_program():
         slicedir = ["-I/usr/share/Ice/slice", "-I/usr/share/slice"]
     else:
         slicedir = ['-I' + slicedir]
+
     Ice.loadSlice('', slicedir + [cfg.ice.slice])
     import Murmur
 
@@ -332,6 +334,7 @@ def do_main_program():
 
             adapter = ice.createObjectAdapterWithEndpoints('Callback.Client', 'tcp -h %s' % cfg.ice.host)
             adapter.activate()
+            self.adapter = adapter
 
             metacbprx = adapter.addWithUUID(metaCallback(self))
             self.metacb = Murmur.MetaCallbackPrx.uncheckedCast(metacbprx)
@@ -357,6 +360,11 @@ def do_main_program():
                     if not cfg.murmur.servers or server.id() in cfg.murmur.servers:
                         if not quiet: info('Setting authenticator for virtual server %d', server.id())
                         server.setAuthenticator(self.auth)
+
+                        serverCb = self.adapter.addWithUUID(serverCallbackI(self, server))
+                        self.serverCb = Murmur.ServerCallbackPrx.uncheckedCast(serverCb)
+
+                        server.addCallback(self.serverCb)
 
             except (Murmur.InvalidSecretException, Ice.UnknownUserException, Ice.ConnectionRefusedException) as e:
                 if isinstance(e, Ice.ConnectionRefusedException):
@@ -465,6 +473,7 @@ def do_main_program():
                 info('Setting authenticator for virtual server %d', server.id())
                 try:
                     server.setAuthenticator(app.auth)
+                    server.addCallback(app.auth)
                 # Apparently this server was restarted without us noticing
                 except (Murmur.InvalidSecretException, Ice.UnknownUserException) as e:
                     if hasattr(e, "unknown") and e.unknown != "Murmur::InvalidSecretException":
@@ -517,8 +526,10 @@ def do_main_program():
             # Search for the user in the database
             FALL_THROUGH = -2
             AUTH_REFUSED = -1
-
-            if name == 'SuperUser':
+            #print(name)
+            #print(pw)
+            if name == 'SuperUser' or name == 'superuser':
+                #print('Forced fall through for SuperUser')
                 debug('Forced fall through for SuperUser')
                 return (FALL_THROUGH, None, None)
 
@@ -526,14 +537,57 @@ def do_main_program():
                 sql = 'SELECT user_id, pwhash, groups, hashfn ' \
                       'FROM %smumble_mumbleuser ' \
                       'WHERE username = %%s' % cfg.database.prefix
-
                 cur = threadDB.execute(sql, [name])
+
             except threadDbException:
+                #print("fail?")
                 return (FALL_THROUGH, None, None)
 
             res = cur.fetchone()
+
             cur.close()
             if not res:
+                #print("check templink %s"% (str(pw)))
+                #user not auth'd lets check if hes ising a temp link
+                sql = 'SELECT link_ref, expires ' \
+                      'FROM %smumbletemps_templink ' \
+                      'WHERE link_ref = %%s' % cfg.database.prefix
+
+                cur = threadDB.execute(sql, [pw])
+                res = cur.fetchone()
+                cur.close()
+                if not res:
+                    info('Fall through for unknown user "%s"', name)
+                    return (FALL_THROUGH, None, None)
+                ref, expire = res
+                unix_now = datetime.datetime.now().timestamp()
+                #get name
+                if expire > unix_now:
+                    sql = "SELECT `auth_user`.`id`, "\
+                            "`auth_user`.`username`,"\
+                            "`eveonline_evecharacter`.`character_name`,"\
+                            "`eveonline_evecharacter`.`corporation_ticker`"\
+                            "FROM `%sauth_user`"\
+                            "LEFT OUTER JOIN `authentication_userprofile` ON (`auth_user`.`id` = `authentication_userprofile`.`user_id`)"\
+                            "LEFT OUTER JOIN `eveonline_evecharacter` ON (`authentication_userprofile`.`main_character_id` = `eveonline_evecharacter`.`id`)"\
+                            "WHERE `auth_user`.`username` = %%s" % cfg.database.prefix
+                    cur = threadDB.execute(sql, [name])
+                    res = cur.fetchone()
+                    cur.close()
+                    if not res:
+                        #print("Fall through for unknown user")
+                        info('Fall through for unknown user "%s"', name)
+                        return (FALL_THROUGH, None, None)
+                    info('checking templink for "%s"', name)
+                    uid, username, char, ticker = res
+                    #print(char)
+                    #print(ticker)
+                    display_name = "[TEMP][%s] %s" % (ticker, char)
+                    groups = ["Guest"]
+                    info('User Templink Authorized: "%s" (%d)', name, uid + (cfg.user.id_offset*2))
+                    debug('Group memberships: %s', str(groups))
+                    return (uid + (cfg.user.id_offset*2), entity_decode(display_name), groups)
+
                 info('Fall through for unknown user "%s"', name)
                 return (FALL_THROUGH, None, None)
 
@@ -543,7 +597,6 @@ def do_main_program():
                 groups = ugroups.split(',')
             else:
                 groups = []
-
             debug('checking password with hash function: %s' % uhashfn)
 
             if allianceauth_check_hash(pw, upwhash, uhashfn):
@@ -711,6 +764,34 @@ def do_main_program():
 
             debug('setTexture %d -> fall through', id)
             return FALL_THROUGH
+
+
+    class serverCallbackI(Murmur.ServerCallback):
+        def __init__(self, adapter, server):
+            self.server = server
+
+        @checkSecret
+        def userConnected(self, p, current=None):
+            pass
+
+        @checkSecret
+        def userDisconnected(self, p, current=None):
+            pass
+
+        @checkSecret
+        def userTextMessage(self, p, message, current=None):
+            if message.text == "!kicktemps":
+                if self.server.hasPermission(p.session, 0, 0x10000):
+                    self.server.sendMessage(p.session, "Kicking all templink clients!")
+                    users = self.server.getUsers()
+                    for (userid, user) in users.items():
+                        if user.userid>(cfg.user.id_offset*2):
+                            #print(user)
+                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
+                    self.server.sendMessage(p.session, "All templink clients kicked!")
+
+                else:
+                    self.server.sendMessage(p.session, "You do not have kick permissions!")
 
     class CustomLogger(Ice.Logger):
         """

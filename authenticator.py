@@ -360,13 +360,14 @@ def do_main_program():
 
                 for server in self.meta.getBootedServers():
                     if not cfg.murmur.servers or server.id() in cfg.murmur.servers:
-                        if not quiet: info('Setting authenticator for virtual server %d', server.id())
+                        if not quiet: 
+                            info('Setting authenticator for virtual server %d', server.id())
+                            serverCb = self.adapter.addWithUUID(serverCallbackI(self, server))
+                            self.serverCb = Murmur.ServerCallbackPrx.uncheckedCast(serverCb)
+                            server.addCallback(self.serverCb)
+
                         server.setAuthenticator(self.auth)
 
-                        serverCb = self.adapter.addWithUUID(serverCallbackI(self, server))
-                        self.serverCb = Murmur.ServerCallbackPrx.uncheckedCast(serverCb)
-
-                        server.addCallback(self.serverCb)
 
             except (Murmur.InvalidSecretException, Ice.UnknownUserException, Ice.ConnectionRefusedException) as e:
                 if isinstance(e, Ice.ConnectionRefusedException):

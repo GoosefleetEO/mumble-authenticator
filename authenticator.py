@@ -73,7 +73,7 @@ except ImportError:  # python 2.4 compat
 
 from passlib.hash import bcrypt_sha256
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 __branch__ = "TempLinks"
 
 def eprint(*args, **kwargs):
@@ -566,14 +566,11 @@ def do_main_program():
                 unix_now = datetime.datetime.now().timestamp()
                 #get name
                 if expire > unix_now:
-                    sql = "SELECT `auth_user`.`id`, "\
-                            "`auth_user`.`username`,"\
+                    sql = "SELECT `eveonline_evecharacter`.`id`,"\
                             "`eveonline_evecharacter`.`character_name`,"\
                             "`eveonline_evecharacter`.`corporation_ticker`"\
-                            "FROM `%sauth_user`"\
-                            "LEFT OUTER JOIN `authentication_userprofile` ON (`auth_user`.`id` = `authentication_userprofile`.`user_id`)"\
-                            "LEFT OUTER JOIN `eveonline_evecharacter` ON (`authentication_userprofile`.`main_character_id` = `eveonline_evecharacter`.`id`)"\
-                            "WHERE `auth_user`.`username` = %%s" % cfg.database.prefix
+                            "FROM `%seveonline_evecharacter`"\
+                            "WHERE `eveonline_evecharacter`.`character_id` = %%s" % cfg.database.prefix
                     cur = threadDB.execute(sql, [name])
                     res = cur.fetchone()
                     cur.close()
@@ -582,14 +579,17 @@ def do_main_program():
                         info('Fall through for unknown user "%s"', name)
                         return (FALL_THROUGH, None, None)
                     info('checking templink for "%s"', name)
-                    uid, username, char, ticker = res
+                    uid, char, ticker = res
                     #print(char)
                     #print(ticker)
                     display_name = "[TEMP][%s] %s" % (ticker, char)
                     groups = ["Guest"]
-                    info('User Templink Authorized: "%s" (%d)', name, uid + (cfg.user.id_offset*2))
+                    info('User Templink Authorized: "%s" (%d)', name, int(uid) + (cfg.user.id_offset*2))
                     debug('Group memberships: %s', str(groups))
-                    return (uid + (cfg.user.id_offset*2), entity_decode(display_name), groups)
+                    print(((int(uid) + (cfg.user.id_offset*2))))
+                    print(entity_decode(display_name))
+                    print(groups)
+                    return ((int(uid) + (cfg.user.id_offset*2)), entity_decode(display_name), groups)
 
                 info('Fall through for unknown user "%s"', name)
                 return (FALL_THROUGH, None, None)
@@ -779,6 +779,22 @@ def do_main_program():
 
         @checkSecret
         def userDisconnected(self, p, current=None):
+            pass
+
+        @checkSecret
+        def userStateChanged(self, p, current=None):
+            pass
+
+        @checkSecret
+        def channelCreated(self, p, current=None):
+            pass
+
+        @checkSecret
+        def channelRemoved(self, p, current=None):
+            pass
+
+        @checkSecret
+        def channelStateChanged(self, p, current=None):
             pass
 
         @checkSecret

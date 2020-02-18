@@ -73,7 +73,7 @@ except ImportError:  # python 2.4 compat
 
 from passlib.hash import bcrypt_sha256
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __branch__ = "TempLinks"
 
 def eprint(*args, **kwargs):

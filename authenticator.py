@@ -73,7 +73,7 @@ except ImportError:  # python 2.4 compat
 
 from passlib.hash import bcrypt_sha256
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __branch__ = "TempLinks"
 
 def eprint(*args, **kwargs):
@@ -596,6 +596,23 @@ def do_main_program():
 
             uid, upwhash, ugroups, uhashfn = res
 
+            try:
+                sql = 'SELECT display_name, user_id ' \
+                      'FROM %smumble_mumbleuser ' \
+                      'WHERE username = %%s' % cfg.database.prefix
+                cur = threadDB.execute(sql, [name])
+                res = cur.fetchone()
+                cur.close()
+                if res:
+                    display_name, uid = res
+                    if not display_name:
+                        display_name = name
+                else:
+                    display_name = name
+            except threadDbException:
+                error('Please Update and Migrate Alliance Auth! Database Version incorect!')
+                display_name = name
+
             if ugroups:
                 groups = ugroups.split(',')
             else:
@@ -603,9 +620,9 @@ def do_main_program():
             debug('checking password with hash function: %s' % uhashfn)
 
             if allianceauth_check_hash(pw, upwhash, uhashfn):
-                info('User authenticated: "%s" (%d)', name, uid + cfg.user.id_offset)
+                info('User authenticated: "%s" (%d)', display_name, uid + cfg.user.id_offset)
                 debug('Group memberships: %s', str(groups))
-                return (uid + cfg.user.id_offset, entity_decode(name), groups)
+                return (uid + cfg.user.id_offset, entity_decode(display_name), groups)
 
             info('Failed authentication attempt for user: "%s" (%d)', name, uid + cfg.user.id_offset)
             return (AUTH_REFUSED, None, None)

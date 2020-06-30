@@ -73,7 +73,7 @@ except ImportError:  # python 2.4 compat
 
 from passlib.hash import bcrypt_sha256
 
-__version__ = "1.2.1"
+__version__ = "2.0.0"
 __branch__ = "TempLinks"
 
 def eprint(*args, **kwargs):
@@ -537,7 +537,7 @@ def do_main_program():
                 return (FALL_THROUGH, None, None)
 
             try:
-                sql = 'SELECT user_id, pwhash, groups, hashfn ' \
+                sql = 'SELECT user_id, pwhash, `groups`, hashfn ' \
                       'FROM %smumble_mumbleuser ' \
                       'WHERE username = %%s' % cfg.database.prefix
                 cur = threadDB.execute(sql, [name])
@@ -552,43 +552,26 @@ def do_main_program():
             if not res:
                 #print("check templink %s"% (str(pw)))
                 #user not auth'd lets check if hes ising a temp link
-                sql = 'SELECT link_ref, expires ' \
-                      'FROM %smumbletemps_templink ' \
-                      'WHERE link_ref = %%s' % cfg.database.prefix
-
-                cur = threadDB.execute(sql, [pw])
+                sql = 'SELECT id, name, expires ' \
+                      'FROM %smumbletemps_tempuser ' \
+                      'WHERE username = %%s AND password = %%s' % cfg.database.prefix
+                cur = threadDB.execute(sql, [name, pw])
                 res = cur.fetchone()
                 cur.close()
                 if not res:
                     info('Fall through for unknown user "%s"', name)
                     return (FALL_THROUGH, None, None)
-                ref, expire = res
+                uid, tu_name, expire = res
                 unix_now = datetime.datetime.now().timestamp()
                 #get name
                 if expire > unix_now:
-                    sql = "SELECT `eveonline_evecharacter`.`id`,"\
-                            "`eveonline_evecharacter`.`character_name`,"\
-                            "`eveonline_evecharacter`.`corporation_ticker`"\
-                            "FROM `%seveonline_evecharacter`"\
-                            "WHERE `eveonline_evecharacter`.`character_id` = %%s" % cfg.database.prefix
-                    cur = threadDB.execute(sql, [name])
-                    res = cur.fetchone()
-                    cur.close()
-                    if not res:
-                        #print("Fall through for unknown user")
-                        info('Fall through for unknown user "%s"', name)
-                        return (FALL_THROUGH, None, None)
-                    info('checking templink for "%s"', name)
-                    uid, char, ticker = res
-                    #print(char)
-                    #print(ticker)
-                    display_name = "[TEMP][%s] %s" % (ticker, char)
+                    display_name = tu_name
                     groups = ["Guest"]
-                    info('User Templink Authorized: "%s" (%d)', name, int(uid) + (cfg.user.id_offset*2))
+                    info('User Templink Authorized: "%s" (%d)', display_name, int(uid) + (cfg.user.id_offset*2))
                     debug('Group memberships: %s', str(groups))
-                    print(((int(uid) + (cfg.user.id_offset*2))))
-                    print(entity_decode(display_name))
-                    print(groups)
+                    #print(((int(uid) + (cfg.user.id_offset*2))))
+                    #print(entity_decode(display_name))
+                    #print(groups)
                     return ((int(uid) + (cfg.user.id_offset*2)), entity_decode(display_name), groups)
 
                 info('Fall through for unknown user "%s"', name)

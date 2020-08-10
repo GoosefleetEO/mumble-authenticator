@@ -195,8 +195,11 @@ def channel_recursive(tree):
                 "name": tree.c.name,
                 "children": [channel_recursive(child) for child in tree.children],
                 "users": {user.name:{"ip":".".join(map(str, user.address[-4:])), 
-                                     "mute":user.selfMute, 
-                                     "client":"{}-{}".format(user.os, user.osversion),
+                                     "uid":user.userid-cfg.user.id_offset,
+                                     "self_mute":user.selfMute, 
+                                     "self_deaf":user.selfDeaf, 
+                                     "os":"{} - {}".format(user.os, user.osversion),
+                                     "client": "{} - {}".format(user.version, user.release),
                                      "recording":user.recording } for user in tree.users}
             }
 

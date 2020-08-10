@@ -44,6 +44,8 @@ from __future__ import print_function
 import sys
 import Ice
 import datetime
+import requests
+import json
 
 try:
     import thread
@@ -116,7 +118,7 @@ default = {'database': (('lib', str, 'MySQLdb'),
                    ('watchdog', int, 30)),
 
            'iceraw': None,
-
+           'discord': (('dumphook', str, None),),
            'murmur': (('servers', lambda x: map(int, x.split(',')), []),),
            'glacier': (('enabled', x2bool, False),
                        ('user', str, 'allianceserver'),
@@ -188,6 +190,15 @@ def entity_encode(string):
         ret = ret.replace(s, t)
     return ret
 
+def channel_recursive(tree):
+            return {
+                "name": tree.c.name,
+                "children": [channel_recursive(child) for child in tree.children],
+                "users": {user.name:{"ip":".".join(map(str, user.address[-4:])), 
+                                     "mute":user.selfMute, 
+                                     "client":"{}-{}".format(user.os, user.osversion),
+                                     "recording":user.recording } for user in tree.users}
+            }
 
 class threadDbException(Exception): pass
 
@@ -795,7 +806,7 @@ def do_main_program():
 
         @checkSecret
         def channelStateChanged(self, p, current=None):
-            pass
+            pass        
 
         @checkSecret
         def userTextMessage(self, p, message, current=None):
@@ -811,6 +822,25 @@ def do_main_program():
 
                 else:
                     self.server.sendMessage(p.session, "You do not have kick permissions!")
+            elif message.text == "!dump":
+                if self.server.hasPermission(p.session, 0, 0x10000):
+                    self.server.sendMessage(p.session, "Dumping Stats!")
+                    tree = self.server.getTree()
+                    channel_dump = channel_recursive(tree)
+                    file_name = "{}-mumble-dump.json".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+                    with open("dump_logs/" + file_name, 'w') as outfile:
+                        json.dump(channel_dump, outfile, indent=4)
+                    embed = {"content": F"{p.name} Dumped Mumble Details!"}
+                    print(file_name)
+                    if cfg.discord.dumphook:
+                        r = requests.post(cfg.discord.dumphook, 
+                                            files={
+                                                "payload_json":(None, json.dumps(embed)),
+                                                F"_{file_name}": (file_name, open("dump_logs/"+file_name, 'rb'))
+                                                }
+                                            )
+                        r.raise_for_status()
+
 
     class CustomLogger(Ice.Logger):
         """

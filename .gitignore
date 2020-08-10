@@ -1,4 +1,6 @@
 authenticator.ini
+dump_logs/*
+!dump_logs/.gitkeep 
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

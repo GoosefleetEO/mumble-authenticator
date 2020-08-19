@@ -46,7 +46,7 @@ import Ice
 import datetime
 import requests
 import json
-
+from io import BytesIO
 try:
     import thread
 except ImportError:  # python 3 depreciated this
@@ -701,11 +701,38 @@ def do_main_program():
             """
             Gets called to get the corresponding texture for a user
             """
-
+            debug("id to texture: {}".format(id))
             FALL_THROUGH = ""
+            if id in self.texture_cache:
+                return self.texture_cache[id]
+                
+            if id < cfg.user.id_offset:
+                return FALL_THROUGH
+            bbid = id - cfg.user.id_offset
+            
+            sql = "SELECT " \
+            "e.character_id " \
+            "FROM %smumble_mumbleuser m "\
+            "JOIN %sauthentication_userprofile p on p.user_id = m.user_id " \
+            "JOIN %seveonline_evecharacter e on e.id = p.main_character_id " \
+            "WHERE m.user_id = %%s" % (cfg.database.prefix, cfg.database.prefix, cfg.database.prefix)
+            try:
+                cur = threadDB.execute(sql, [bbid])
+                cid = cur.fetchone()[0]
+                cur.close()
+                url = f"https://images.evetech.net/characters/{cid}/portrait?size=64"
+                avatar = requests.get(url)
+                img = avatar.content
 
-            debug('idToTexture "%s" -> fall through', id)
-            return FALL_THROUGH
+                self.texture_cache[id] = img
+
+                return img
+
+            except threadDbException as e:
+                print("Fail")
+                print(e)
+                debug('idToTexture "%s" -> fall through', id)
+                return FALL_THROUGH
 
         @fortifyIceFu(-2)
         @checkSecret
@@ -778,7 +805,7 @@ def do_main_program():
             """
 
             FALL_THROUGH = -1
-
+            print("Set Tex")
             debug('setTexture %d -> fall through', id)
             return FALL_THROUGH
 

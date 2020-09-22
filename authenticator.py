@@ -591,22 +591,6 @@ def do_main_program():
             uid, upwhash, ugroups, uhashfn = res
             
             # check for display name
-            try:
-                sql = 'SELECT `display_name`, `user_id` ' \
-                      'FROM %smumble_mumbleuser ' \
-                      'WHERE `username` = %%s' % cfg.database.prefix
-                cur = threadDB.execute(sql, [name])
-                res = cur.fetchone()
-                cur.close()
-                if res:
-                    display_name, uid = res
-                    if not display_name:
-                        display_name = name
-                else:
-                    display_name = name
-            except threadDbException:
-                error('Please Update and Migrate Alliance Auth! Database Version incorect!')
-                display_name = name
 
             try:
                 sql = 'SELECT display_name, user_id ' \

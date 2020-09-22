@@ -13,6 +13,7 @@ __pycache__/
 env/
 build/
 develop-eggs/
+dump_logs/
 dist/
 downloads/
 eggs/

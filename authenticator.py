@@ -49,14 +49,6 @@
 from __future__ import print_function
 import sys
 import Ice
-import datetime
-
-try:
-    from urllib.request import urlopen
-    from urllib.parse import urlparse
-except ImportError:  # python 3 renamed this
-    from urlparse import urlparse
-    from urllib import urlopen
 
 from urllib.request import urlopen
 import _thread as thread
@@ -78,10 +70,8 @@ from passlib.hash import bcrypt_sha256
 import datetime
 
 __version__ = "1.1.0"
-__branch__ = "AA Base"
-
-__version__ = "2.0.0"
 __branch__ = "TempLinks"
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
@@ -310,7 +300,6 @@ def do_main_program():
         slicedir = ["-I/usr/share/Ice/slice", "-I/usr/share/slice"]
     else:
         slicedir = ['-I' + slicedir]
-
     Ice.loadSlice('', slicedir + [cfg.ice.slice])
     import Murmur
 
@@ -360,7 +349,6 @@ def do_main_program():
             adapter = ice.createObjectAdapterWithEndpoints('Callback.Client',
                                                            'tcp -h %s' % cfg.ice.host)
             adapter.activate()
-            self.adapter = adapter
 
             metacbprx = adapter.addWithUUID(metaCallback(self))
             self.metacb = Murmur.MetaCallbackPrx.uncheckedCast(metacbprx)
@@ -505,7 +493,6 @@ def do_main_program():
                 info('Setting authenticator for virtual server %d', server.id())
                 try:
                     server.setAuthenticator(app.auth)
-                    server.addCallback(app.auth)
                 # Apparently this server was restarted without us noticing
                 except (Murmur.InvalidSecretException, Ice.UnknownUserException) as e:
                     if hasattr(e, "unknown") and e.unknown != "Murmur::InvalidSecretException":
@@ -547,6 +534,7 @@ def do_main_program():
             Murmur.ServerCallback.__init__(self)
             self.app = app
 
+        @checkSecret
         def userConnected(self, user, current=None):
             try:
                 sql = 'UPDATE %smumble_mumbleuser ' \
@@ -562,6 +550,7 @@ def do_main_program():
                        Database Version incorrect! Error: UserConnect')
                 error(e)
 
+        @checkSecret
         def userDisconnected(self, user, current=None):
             try:
                 sql = 'UPDATE %smumble_mumbleuser ' \
@@ -575,17 +564,38 @@ def do_main_program():
                        Database Version incorrect! Error: UserDisconnect')
                 error(e)
 
+        @checkSecret
         def userStateChanged(self, user, current=None):
             pass
 
+        @checkSecret
         def channelCreated(self, channel, current=None):
             pass
 
+        @checkSecret
         def channelRemoved(self, channel, current=None):
             pass
 
+        @checkSecret
         def channelStateChanged(self, channel, current=None):
             pass
+
+        @checkSecret
+        def userTextMessage(self, p, message, current=None):
+            if message.text == "!kicktemps":
+                if self.server.hasPermission(p.session, 0, 0x10000):
+                    self.server.sendMessage(p.session, "Kicking all templink clients!")
+                    users = self.server.getUsers()
+                    for (userid, user) in users.items():
+                        if user.userid>(cfg.user.id_offset*2):
+                            #print(user)
+                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
+                    self.server.sendMessage(p.session, "All templink clients kicked!")
+
+                else:
+                    self.server.sendMessage(p.session, "You do not have kick permissions!")
+
+
 
     class allianceauthauthenticator(Murmur.ServerUpdatingAuthenticator):
         texture_cache = {}
@@ -604,12 +614,11 @@ def do_main_program():
             # Search for the user in the database
             FALL_THROUGH = -2
             AUTH_REFUSED = -1
-            #print(name)
-            #print(pw)
-            if name == 'SuperUser' or name == 'superuser':
-                #print('Forced fall through for SuperUser')
+
+            if name == 'SuperUser':
                 debug('Forced fall through for SuperUser')
                 return (FALL_THROUGH, None, None)
+
             # find the user
             try:
                 sql = 'SELECT `user_id`, `pwhash`, `groups`, `hashfn` ' \
@@ -618,15 +627,13 @@ def do_main_program():
                 cur = threadDB.execute(sql, [name])
                 debug('User Authenticated {0}'.format(name))
             except threadDbException:
-                #print("fail?")
                 return (FALL_THROUGH, None, None)
 
             res = cur.fetchone()
-
             cur.close()
             if not res:
-                #print("check templink %s"% (str(pw)))
-                #user not auth'd lets check if hes ising a temp link
+                # user is not auth'd 
+                # Check for Templink
                 sql = 'SELECT id, name, expires ' \
                       'FROM %smumbletemps_tempuser ' \
                       'WHERE username = %%s AND password = %%s' % cfg.database.prefix
@@ -638,40 +645,19 @@ def do_main_program():
                     return (FALL_THROUGH, None, None)
                 uid, tu_name, expire = res
                 unix_now = datetime.datetime.now().timestamp()
-                #get name
                 if expire > unix_now:
                     display_name = tu_name
                     groups = ["Guest"]
                     info('User Templink Authorized: "%s" (%d)', display_name, int(uid) + (cfg.user.id_offset*2))
                     debug('Group memberships: %s', str(groups))
-                    #print(((int(uid) + (cfg.user.id_offset*2))))
-                    #print(entity_decode(display_name))
-                    #print(groups)
                     return ((int(uid) + (cfg.user.id_offset*2)), entity_decode(display_name), groups)
 
                 info('Fall through for unknown user "%s"', name)
                 return (FALL_THROUGH, None, None)
+
+
             # breakout the data
             uid, upwhash, ugroups, uhashfn = res
-            
-            # check for display name
-
-            try:
-                sql = 'SELECT display_name, user_id ' \
-                      'FROM %smumble_mumbleuser ' \
-                      'WHERE username = %%s' % cfg.database.prefix
-                cur = threadDB.execute(sql, [name])
-                res = cur.fetchone()
-                cur.close()
-                if res:
-                    display_name, uid = res
-                    if not display_name:
-                        display_name = name
-                else:
-                    display_name = name
-            except threadDbException:
-                error('Please Update and Migrate Alliance Auth! Database Version incorect!')
-                display_name = name
 
             # check for display name
             try:
@@ -697,6 +683,7 @@ def do_main_program():
                 groups = ugroups.split(',')
             else:
                 groups = []
+
             debug('checking password with hash function: %s' % uhashfn)
 
             if allianceauth_check_hash(pw, upwhash, uhashfn):
@@ -790,12 +777,6 @@ def do_main_program():
             Gets called to get the corresponding texture for a user
             """
             FALL_THROUGH = ""
-            
-            if not cfg.user.avatar_enable:
-                debug('idToTexture %d -> avatar display disabled, fall through', id)
-                return FALL_THROUGH
-                
-            # Otherwise get the CCP character ID from AAuth DB.
 
             if not cfg.user.avatar_enable:
                 debug('idToTexture %d -> avatar display disabled, fall through', id)
@@ -803,14 +784,20 @@ def do_main_program():
 
             # Otherwise get the CCP character ID from AAuth DB.
             try:
-                if id > cfg.user.id_offset:
+                if id > cfg.user.id_offset*2:
+                    bbid = id - cfg.user.id_offset*2
+                    sql = "SELECT REPLACE('%s', '{charid}', tu.character_id) " \
+                          'FROM %smumbletemps_tempuser AS `tu` ' \
+                          'WHERE (tu.id = %%s)' \
+                              % (cfg.user.ccp_avatar_url, cfg.database.prefix)
+                    cur = threadDB.execute(sql, [bbid])
+                elif id > cfg.user.id_offset:
                     bbid = id - cfg.user.id_offset
                     sql = "SELECT REPLACE('%s', '{charid}', eec.character_id) " \
-                          'FROM %seveonline_evecharacter AS `eec`,' \
-                          '%sauthentication_userprofile AS `aup` ' \
+                          'FROM %seveonline_evecharacter AS `eec`, %sauthentication_userprofile AS `aup` ' \
                           'WHERE (aup.user_id = %%s) AND (aup.main_character_id = eec.id)' \
-                        % (cfg.user.ccp_avatar_url, cfg.database.prefix, cfg.database.prefix)
-                cur = threadDB.execute(sql, [bbid])
+                              % (cfg.user.ccp_avatar_url, cfg.database.prefix, cfg.database.prefix)
+                    cur = threadDB.execute(sql, [bbid])
             except threadDbException:
                 debug('idToTexture %d -> DB error for query "%s", fall through', id, sql)
                 return FALL_THROUGH
@@ -844,6 +831,7 @@ def do_main_program():
                 else:
                     file = handle.read()
                     handle.close()
+
                 # Cache resulting avatar by file address and return image.
                 self.texture_cache[avatar_file] = file
                 debug('idToTexture %d -> avatar from "%s" retrieved and returned', id, avatar_file)
@@ -928,50 +916,6 @@ def do_main_program():
 
             debug('setTexture %d -> fall through', id)
             return FALL_THROUGH
-
-
-    class serverCallbackI(Murmur.ServerCallback):
-        def __init__(self, adapter, server):
-            self.server = server
-
-        @checkSecret
-        def userConnected(self, p, current=None):
-            pass
-
-        @checkSecret
-        def userDisconnected(self, p, current=None):
-            pass
-
-        @checkSecret
-        def userStateChanged(self, p, current=None):
-            pass
-
-        @checkSecret
-        def channelCreated(self, p, current=None):
-            pass
-
-        @checkSecret
-        def channelRemoved(self, p, current=None):
-            pass
-
-        @checkSecret
-        def channelStateChanged(self, p, current=None):
-            pass
-
-        @checkSecret
-        def userTextMessage(self, p, message, current=None):
-            if message.text == "!kicktemps":
-                if self.server.hasPermission(p.session, 0, 0x10000):
-                    self.server.sendMessage(p.session, "Kicking all templink clients!")
-                    users = self.server.getUsers()
-                    for (userid, user) in users.items():
-                        if user.userid>(cfg.user.id_offset*2):
-                            #print(user)
-                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
-                    self.server.sendMessage(p.session, "All templink clients kicked!")
-
-                else:
-                    self.server.sendMessage(p.session, "You do not have kick permissions!")
 
     class CustomLogger(Ice.Logger):
         """

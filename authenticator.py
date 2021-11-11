@@ -585,21 +585,21 @@ def do_main_program():
             pass
 
         @checkSecret
-        def userTextMessage(self, p, message, current=None):
+        def userTextMessage(self, user, message, current=None):
             if message.text == "!kicktemps":
-                if self.server.hasPermission(p.session, 0, 0x10000):
-                    self.server.sendMessage(p.session, "Kicking all templink clients!")
+                if self.server.hasPermission(user.session, 0, 0x10000):
+                    self.server.sendMessage(user.session, "Kicking all templink clients!")
+
                     users = self.server.getUsers()
-                    for (userid, user) in users.items():
-                        if user.userid>(cfg.user.id_offset*2):
-                            #print(user)
-                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
-                    self.server.sendMessage(p.session, "All templink clients kicked!")
+                    for (userid, auser) in users.items():
+                        if auser.userid > (cfg.user.id_offset*2):
+                            #print(auser)
+                            self.server.kickUser(auser.session, "Kicking all temp users! :-)")
+
+                    self.server.sendMessage(user.session, "All templink clients kicked!")
 
                 else:
-                    self.server.sendMessage(p.session, "You do not have kick permissions!")
-
-
+                    self.server.sendMessage(user.session, "You do not have kick permissions!")
 
     class allianceauthauthenticator(Murmur.ServerUpdatingAuthenticator):
         texture_cache = {}

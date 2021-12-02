@@ -349,12 +349,10 @@ def do_main_program():
             adapter = ice.createObjectAdapterWithEndpoints('Callback.Client',
                                                            'tcp -h %s' % cfg.ice.host)
             adapter.activate()
+            self.adapter = adapter
 
             metacbprx = adapter.addWithUUID(metaCallback(self))
             self.metacb = Murmur.MetaCallbackPrx.uncheckedCast(metacbprx)
-
-            servercbprx = adapter.addWithUUID(serverCallback(self))
-            self.servercb = Murmur.ServerCallbackPrx.uncheckedCast(servercbprx)
 
             authprx = adapter.addWithUUID(allianceauthauthenticator())
             self.auth = Murmur.ServerUpdatingAuthenticatorPrx.uncheckedCast(authprx)
@@ -378,8 +376,13 @@ def do_main_program():
                     if not cfg.murmur.servers or server.id() in cfg.murmur.servers:
                         if not quiet:
                             info('Setting authenticator for virtual server %d', server.id())
+
+                        servercbprx = self.adapter.addWithUUID(serverCallback(self, server))
+                        self.servercb = Murmur.ServerCallbackPrx.uncheckedCast(servercbprx)
+
                         server.setAuthenticator(self.auth)
                         server.addCallback(self.servercb)
+
                         if cfg.idlerhandler.enabled is True:
                             idler_handler(server)
 
@@ -530,9 +533,10 @@ def do_main_program():
         authenticateFortifyResult = (-2, None, None)
     
     class serverCallback(Murmur.ServerCallback):
-        def __init__(self, app):
+        def __init__(self, app, server):
             Murmur.ServerCallback.__init__(self)
             self.app = app
+            self.server = server
 
         @checkSecret
         def userConnected(self, user, current=None):
@@ -581,21 +585,21 @@ def do_main_program():
             pass
 
         @checkSecret
-        def userTextMessage(self, p, message, current=None):
+        def userTextMessage(self, user, message, current=None):
             if message.text == "!kicktemps":
-                if self.server.hasPermission(p.session, 0, 0x10000):
-                    self.server.sendMessage(p.session, "Kicking all templink clients!")
+                if self.server.hasPermission(user.session, 0, 0x10000):
+                    self.server.sendMessage(user.session, "Kicking all templink clients!")
+
                     users = self.server.getUsers()
-                    for (userid, user) in users.items():
-                        if user.userid>(cfg.user.id_offset*2):
-                            #print(user)
-                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
-                    self.server.sendMessage(p.session, "All templink clients kicked!")
+                    for (userid, auser) in users.items():
+                        if auser.userid > (cfg.user.id_offset*2):
+                            #print(auser)
+                            self.server.kickUser(auser.session, "Kicking all temp users! :-)")
+
+                    self.server.sendMessage(user.session, "All templink clients kicked!")
 
                 else:
-                    self.server.sendMessage(p.session, "You do not have kick permissions!")
-
-
+                    self.server.sendMessage(user.session, "You do not have kick permissions!")
 
     class allianceauthauthenticator(Murmur.ServerUpdatingAuthenticator):
         texture_cache = {}

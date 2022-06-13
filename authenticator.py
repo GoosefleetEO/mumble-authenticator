@@ -78,6 +78,7 @@ from passlib.hash import bcrypt_sha256
 __version__ = "2.0.0"
 __branch__ = "TempLinks"
 
+
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
@@ -86,7 +87,7 @@ def x2bool(s):
     """Helper function to convert strings from the config to bool"""
     try:
         compare_type = basestring
-    except NameError: # python 3
+    except NameError:  # python 3
         compare_type = str
 
     if isinstance(s, bool):
@@ -156,7 +157,8 @@ class config(object):
                 self.__dict__[h] = config()
                 for name, conv, vdefault in v:
                     try:
-                        self.__dict__[h].__dict__[name] = conv(cfg.get(h, name))
+                        self.__dict__[h].__dict__[
+                            name] = conv(cfg.get(h, name))
                     except (ValueError, ConfigParser.NoSectionError, ConfigParser.NoOptionError):
                         self.__dict__[h].__dict__[name] = vdefault
 
@@ -190,20 +192,46 @@ def entity_encode(string):
         ret = ret.replace(s, t)
     return ret
 
-def channel_recursive(tree):
-            return {
-                "name": tree.c.name,
-                "children": [channel_recursive(child) for child in tree.children],
-                "users": {user.name:{"ip":".".join(map(str, user.address[-4:])), 
-                                     "uid":user.userid-cfg.user.id_offset,
-                                     "self_mute":user.selfMute, 
-                                     "self_deaf":user.selfDeaf, 
-                                     "os":"{} - {}".format(user.os, user.osversion),
-                                     "client": "{} - {}".format(user.version, user.release),
-                                     "recording":user.recording } for user in tree.users}
-            }
 
-class threadDbException(Exception): pass
+def channel_recursive(server, tree):
+    acl = []
+    for a in server.getACL(tree.c.id)[0]:
+        acl.append(
+            {
+                "ah": a.applyHere,
+                "as": a.applySubs,
+                "in": a.inherited,
+                "uid": a.userid,
+                "grp": a.group,
+                "allow": "{:08b}".format(a.allow),
+                "deny": "{:08b}".format(a.deny),
+
+            }
+        )
+    return {
+        "name": tree.c.name,
+        "id": tree.c.id,
+        "acl": acl,
+        "pos": tree.c.position,
+        "links": tree.c.links,
+        "children": [channel_recursive(server, child) for child in tree.children],
+        "users": {user.name: {"ip": ".".join(map(str, user.address[-4:])),
+                              "uid": user.userid-cfg.user.id_offset,
+                              "session": user.session,
+                              "self_mute": user.selfMute,
+                              "self_deaf": user.selfDeaf,
+                              "os": "{} - {}".format(user.os, user.osversion),
+                              "client": "{} - {}".format(user.version, user.release),
+                              "ping": {
+                                    "UDP": user.udpPing,
+                                    "TCP": user.tcpPing,
+        },
+            "recording": user.recording} for user in tree.users}
+    }
+
+
+class threadDbException(Exception):
+    pass
 
 
 class threadDB(object):
@@ -345,10 +373,12 @@ def do_main_program():
                 # TODO: Implement this
 
             info('Connecting to Ice server (%s:%d)', cfg.ice.host, cfg.ice.port)
-            base = ice.stringToProxy('Meta:tcp -h %s -p %d' % (cfg.ice.host, cfg.ice.port))
+            base = ice.stringToProxy(
+                'Meta:tcp -h %s -p %d' % (cfg.ice.host, cfg.ice.port))
             self.meta = Murmur.MetaPrx.uncheckedCast(base)
 
-            adapter = ice.createObjectAdapterWithEndpoints('Callback.Client', 'tcp -h %s' % cfg.ice.host)
+            adapter = ice.createObjectAdapterWithEndpoints(
+                'Callback.Client', 'tcp -h %s' % cfg.ice.host)
             adapter.activate()
             self.adapter = adapter
 
@@ -356,7 +386,8 @@ def do_main_program():
             self.metacb = Murmur.MetaCallbackPrx.uncheckedCast(metacbprx)
 
             authprx = adapter.addWithUUID(allianceauthauthenticator())
-            self.auth = Murmur.ServerUpdatingAuthenticatorPrx.uncheckedCast(authprx)
+            self.auth = Murmur.ServerUpdatingAuthenticatorPrx.uncheckedCast(
+                authprx)
 
             return self.attachCallbacks()
 
@@ -368,27 +399,30 @@ def do_main_program():
             # Ice.ConnectionRefusedException
             # debug('Attaching callbacks')
             try:
-                if not quiet: info('Attaching meta callback')
+                if not quiet:
+                    info('Attaching meta callback')
 
                 self.meta.addCallback(self.metacb)
 
                 for server in self.meta.getBootedServers():
                     if not cfg.murmur.servers or server.id() in cfg.murmur.servers:
-                        if not quiet: 
-                            info('Setting authenticator for virtual server %d', server.id())
-                            serverCb = self.adapter.addWithUUID(serverCallbackI(self, server))
-                            self.serverCb = Murmur.ServerCallbackPrx.uncheckedCast(serverCb)
+                        if not quiet:
+                            info(
+                                'Setting authenticator for virtual server %d', server.id())
+                            serverCb = self.adapter.addWithUUID(
+                                serverCallbackI(self, server))
+                            self.serverCb = Murmur.ServerCallbackPrx.uncheckedCast(
+                                serverCb)
                             server.addCallback(self.serverCb)
 
                         server.setAuthenticator(self.auth)
-
 
             except (Murmur.InvalidSecretException, Ice.UnknownUserException, Ice.ConnectionRefusedException) as e:
                 if isinstance(e, Ice.ConnectionRefusedException):
                     error('Server refused connection')
                 elif isinstance(e, Murmur.InvalidSecretException) or \
-                                isinstance(e, Ice.UnknownUserException) and (
-                                    e.unknown == 'Murmur::InvalidSecretException'):
+                        isinstance(e, Ice.UnknownUserException) and (
+                        e.unknown == 'Murmur::InvalidSecretException'):
                     error('Invalid ice secret')
                 else:
                     # We do not actually want to handle this one, re-raise it
@@ -413,7 +447,8 @@ def do_main_program():
                 else:
                     self.failedWatch = False
             except Ice.Exception as e:
-                error('Failed connection check, will retry in next watchdog run (%ds)', cfg.ice.watchdog)
+                error(
+                    'Failed connection check, will retry in next watchdog run (%ds)', cfg.ice.watchdog)
                 debug(str(e))
                 self.failedWatch = True
 
@@ -449,7 +484,7 @@ def do_main_program():
         value. This helps preventing the authenticator getting stuck in
         critical code paths. Only exceptions that are instances of classes
         given in the exceptions list are not caught.
-        
+
         The default is to catch all non-Ice exceptions.
         """
 
@@ -543,8 +578,8 @@ def do_main_program():
             # Search for the user in the database
             FALL_THROUGH = -2
             AUTH_REFUSED = -1
-            #print(name)
-            #print(pw)
+            # print(name)
+            # print(pw)
             if name == 'SuperUser' or name == 'superuser':
                 #print('Forced fall through for SuperUser')
                 debug('Forced fall through for SuperUser')
@@ -557,7 +592,7 @@ def do_main_program():
                 cur = threadDB.execute(sql, [name])
 
             except threadDbException:
-                #print("fail?")
+                # print("fail?")
                 return (FALL_THROUGH, None, None)
 
             res = cur.fetchone()
@@ -565,7 +600,7 @@ def do_main_program():
             cur.close()
             if not res:
                 #print("check templink %s"% (str(pw)))
-                #user not auth'd lets check if hes ising a temp link
+                # user not auth'd lets check if hes ising a temp link
                 sql = 'SELECT id, name, expires ' \
                       'FROM %smumbletemps_tempuser ' \
                       'WHERE username = %%s AND password = %%s' % cfg.database.prefix
@@ -577,15 +612,16 @@ def do_main_program():
                     return (FALL_THROUGH, None, None)
                 uid, tu_name, expire = res
                 unix_now = datetime.datetime.now().timestamp()
-                #get name
+                # get name
                 if expire > unix_now:
                     display_name = tu_name
                     groups = ["Guest"]
-                    info('User Templink Authorized: "%s" (%d)', display_name, int(uid) + (cfg.user.id_offset*2))
+                    info('User Templink Authorized: "%s" (%d)',
+                         display_name, int(uid) + (cfg.user.id_offset*2))
                     debug('Group memberships: %s', str(groups))
                     #print(((int(uid) + (cfg.user.id_offset*2))))
-                    #print(entity_decode(display_name))
-                    #print(groups)
+                    # print(entity_decode(display_name))
+                    # print(groups)
                     return ((int(uid) + (cfg.user.id_offset*2)), entity_decode(display_name), groups)
 
                 info('Fall through for unknown user "%s"', name)
@@ -607,7 +643,8 @@ def do_main_program():
                 else:
                     display_name = name
             except threadDbException:
-                error('Please Update and Migrate Alliance Auth! Database Version incorect!')
+                error(
+                    'Please Update and Migrate Alliance Auth! Database Version incorect!')
                 display_name = name
 
             if ugroups:
@@ -617,11 +654,13 @@ def do_main_program():
             debug('checking password with hash function: %s' % uhashfn)
 
             if allianceauth_check_hash(pw, upwhash, uhashfn):
-                info('User authenticated: "%s" (%d)', display_name, uid + cfg.user.id_offset)
+                info('User authenticated: "%s" (%d)',
+                     display_name, uid + cfg.user.id_offset)
                 debug('Group memberships: %s', str(groups))
                 return (uid + cfg.user.id_offset, entity_decode(display_name), groups)
 
-            info('Failed authentication attempt for user: "%s" (%d)', name, uid + cfg.user.id_offset)
+            info('Failed authentication attempt for user: "%s" (%d)',
+                 name, uid + cfg.user.id_offset)
             return (AUTH_REFUSED, None, None)
 
         @fortifyIceFu((False, None))
@@ -753,7 +792,8 @@ def do_main_program():
             if not res:
                 debug('getRegisteredUsers -> empty list for filter "%s"', filter)
                 return {}
-            debug('getRegisteredUsers -> %d results for filter "%s"', len(res), filter)
+            debug('getRegisteredUsers -> %d results for filter "%s"',
+                  len(res), filter)
             return dict([(a + cfg.user.id_offset, b) for a, b in res])
 
         @fortifyIceFu(-1)
@@ -782,7 +822,6 @@ def do_main_program():
             debug('setTexture %d -> fall through', id)
             return FALL_THROUGH
 
-
     class serverCallbackI(Murmur.ServerCallback):
         def __init__(self, adapter, server):
             self.server = server
@@ -809,41 +848,54 @@ def do_main_program():
 
         @checkSecret
         def channelStateChanged(self, p, current=None):
-            pass        
+            pass
 
         @checkSecret
         def userTextMessage(self, p, message, current=None):
             if message.text == "!kicktemps":
                 if self.server.hasPermission(p.session, 0, 0x10000):
-                    self.server.sendMessage(p.session, "Kicking all templink clients!")
+                    self.server.sendMessage(
+                        p.session, "Kicking all templink clients!")
                     users = self.server.getUsers()
                     for (userid, user) in users.items():
-                        if user.userid>(cfg.user.id_offset*2):
-                            #print(user)
-                            self.server.kickUser(user.session, "Kicking all temp users! :-)")
-                    self.server.sendMessage(p.session, "All templink clients kicked!")
+                        if user.userid > (cfg.user.id_offset*2):
+                            # print(user)
+                            self.server.kickUser(
+                                user.session, "Kicking all temp users! :-)")
+                    self.server.sendMessage(
+                        p.session, "All templink clients kicked!")
 
                 else:
-                    self.server.sendMessage(p.session, "You do not have kick permissions!")
+                    self.server.sendMessage(
+                        p.session, "You do not have kick permissions!")
             elif message.text == "!dump":
                 if self.server.hasPermission(p.session, 0, 0x10000):
                     self.server.sendMessage(p.session, "Dumping Stats!")
                     tree = self.server.getTree()
-                    channel_dump = channel_recursive(tree)
-                    file_name = "{}-mumble-dump.json".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+                    groups = self.server.getACL(1)[1]
+                    grp = []
+                    for g in groups:
+                        grp.append({
+                            "name": g.name,
+                            "members": g.members
+                        }
+                        )
+                    channel_dump = channel_recursive(self.server, tree)
+                    channel_dump["groups"] = grp
+                    file_name = "{}-mumble-dump.json".format(
+                        datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
                     with open("dump_logs/" + file_name, 'w') as outfile:
                         json.dump(channel_dump, outfile, indent=4)
                     embed = {"content": F"{p.name} Dumped Mumble Details!"}
                     print(file_name)
                     if cfg.discord.dumphook:
-                        r = requests.post(cfg.discord.dumphook, 
-                                            files={
-                                                "payload_json":(None, json.dumps(embed)),
-                                                F"_{file_name}": (file_name, open("dump_logs/"+file_name, 'rb'))
-                                                }
-                                            )
+                        r = requests.post(cfg.discord.dumphook,
+                                          files={
+                                              "payload_json": (None, json.dumps(embed)),
+                                              F"_{file_name}": (file_name, open("dump_logs/"+file_name, 'rb'))
+                                          }
+                                          )
                         r.raise_for_status()
-
 
     class CustomLogger(Ice.Logger):
         """
@@ -870,7 +922,8 @@ def do_main_program():
     #
     # --- Start of authenticator
     #
-    info('Starting AllianceAuth mumble authenticator V:%s - %s' % (__version__, __branch__))
+    info('Starting AllianceAuth mumble authenticator V:%s - %s' %
+         (__version__, __branch__))
     initdata = Ice.InitializationData()
     initdata.properties = Ice.createProperties([], initdata.properties)
     for prop, val in cfg.iceraw:
@@ -958,7 +1011,7 @@ if __name__ == '__main__':
                         stream=logfile)
 
     # As the default try to run as daemon. Silently degrade to running as a normal application if this fails
-    # unless the user explicitly defined what he expected with the -a / -d parameter. 
+    # unless the user explicitly defined what he expected with the -a / -d parameter.
     try:
         if option.force_app:
             raise ImportError  # Pretend that we couldn't import the daemon lib
